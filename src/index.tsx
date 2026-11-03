@@ -1,6 +1,146 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
+import App from './App';
 
+const BUILD_VERSION = "build-" + new Date().toISOString();
+
+// Create standalone debug log system
+const logs: string[] = [];
+let dbgPanel: HTMLDivElement | null = null;
+let dbgLogContent: HTMLDivElement | null = null;
+let isPanelVisible = false;
+
+function addLog(type: string, message: string) {
+  const time = new Date().toLocaleTimeString();
+  const entry = `[${time}] [${type}] ${message}`;
+  logs.push(entry);
+
+  if (dbgLogContent) {
+    const item = document.createElement('div');
+    item.textContent = entry;
+    if (type === 'ERROR' || type === 'REJECTION') {
+      item.style.color = '#ff5555';
+    } else if (type === 'WARN') {
+      item.style.color = '#ffff55';
+    }
+    dbgLogContent.appendChild(item);
+    dbgLogContent.scrollTop = dbgLogContent.scrollHeight;
+  }
+}
+
+// Override console methods
+const origLog = console.log;
+const origWarn = console.warn;
+const origError = console.error;
+
+console.log = function (...args: any[]) {
+  origLog.apply(console, args);
+  addLog('LOG', args.map(a => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' '));
+};
+
+console.warn = function (...args: any[]) {
+  origWarn.apply(console, args);
+  addLog('WARN', args.map(a => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' '));
+};
+
+console.error = function (...args: any[]) {
+  origError.apply(console, args);
+  addLog('ERROR', args.map(a => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' '));
+};
+
+// Global Error Listeners
+window.onerror = function (msg, url, lineNo, columnNo, error) {
+  const errMsg = `${msg} at ${url}:${lineNo}:${columnNo}\n${error && error.stack ? error.stack : ''}`;
+  addLog('ERROR', errMsg);
+  return false;
+};
+
+window.addEventListener('unhandledrejection', function (event) {
+  const reason = event.reason ? (event.reason.stack || String(event.reason)) : 'Unknown rejection';
+  addLog('REJECTION', reason);
+});
+
+// Setup DOM Debug elements (mounted outside React tree)
+function initDebugDOM() {
+  try {
+    // Floating DBG button
+    const dbgBtn = document.createElement('button');
+    dbgBtn.id = 'dbg-floating-btn';
+    dbgBtn.textContent = 'DBG';
+    dbgBtn.style.cssText = `
+      position: fixed;
+      top: 10px;
+      right: 10px;
+      z-index: 99999;
+      background: rgba(255, 215, 0, 0.85);
+      color: #071330;
+      border: 2px solid #071330;
+      border-radius: 12px;
+      padding: 6px 12px;
+      font-family: monospace;
+      font-weight: bold;
+      font-size: 13px;
+      cursor: pointer;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.5);
+    `;
+
+    // Full-width Debug Panel
+    dbgPanel = document.createElement('div');
+    dbgPanel.id = 'dbg-panel';
+    dbgPanel.style.cssText = `
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      max-height: 40vh;
+      z-index: 99998;
+      background: #000000;
+      color: #00ff00;
+      font-family: monospace;
+      font-size: 11px;
+      box-sizing: border-box;
+      border-bottom: 3px solid #ffd700;
+      overflow-y: auto;
+      padding: 10px;
+    `;
+
+    const infoHeader = document.createElement('div');
+    infoHeader.style.cssText = 'border-bottom: 1px solid #333; padding-bottom: 6px; margin-bottom: 6px; color: #00e5ff;';
+    infoHeader.innerHTML = `
+      <div><strong>App Version:</strong> ${BUILD_VERSION}</div>
+      <div><strong>Viewport:</strong> ${window.innerWidth} x ${window.innerHeight}</div>
+      <div><strong>UserAgent:</strong> ${navigator.userAgent}</div>
+    `;
+
+    dbgLogContent = document.createElement('div');
+    dbgLogContent.style.cssText = 'white-space: pre-wrap; word-break: break-all;';
+
+    // Populate existing logs
+    logs.forEach(logStr => {
+      const item = document.createElement('div');
+      item.textContent = logStr;
+      dbgLogContent?.appendChild(item);
+    });
+
+    dbgPanel.appendChild(infoHeader);
+    dbgPanel.appendChild(dbgLogContent);
+
+    dbgBtn.addEventListener('click', () => {
+      isPanelVisible = !isPanelVisible;
+      if (dbgPanel) {
+        dbgPanel.style.display = isPanelVisible ? 'block' : 'none';
+      }
+    });
+
+    document.body.appendChild(dbgPanel);
+    document.body.appendChild(dbgBtn);
+  } catch (e) {
+    origError('Failed to initialize Debug DOM:', e);
+  }
+}
+
+// React Error Boundary
 interface Props {
   children: ReactNode;
 }
@@ -24,7 +164,7 @@ class ErrorBoundary extends Component<Props, State> {
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     this.setState({ error, errorInfo });
-    console.error('Uncaught React Error:', error, errorInfo);
+    addLog('REACT_ERROR', `${error.toString()}\n${errorInfo.componentStack}`);
   }
 
   public render() {
@@ -33,13 +173,13 @@ class ErrorBoundary extends Component<Props, State> {
         <div style={{
           padding: '20px',
           color: '#ffaaaa',
-          backgroundColor: '#330000',
+          backgroundColor: '#220000',
           height: '100vh',
           boxSizing: 'border-box',
           fontFamily: 'monospace',
           overflow: 'auto'
         }}>
-          <h2>App Runtime Error</h2>
+          <h2>React Error Boundary Caught An Exception</h2>
           <pre>{this.state.error && this.state.error.toString()}</pre>
           <pre>{this.state.errorInfo && this.state.errorInfo.componentStack}</pre>
         </div>
@@ -49,26 +189,9 @@ class ErrorBoundary extends Component<Props, State> {
   }
 }
 
-function App() {
-  return (
-    <div style={{
-      width: '100%',
-      height: '100%',
-      display: 'flex',
-      flexDirection: 'column',
-      justifyContent: 'center',
-      alignItems: 'center',
-      color: '#ffd700',
-      backgroundColor: '#071330',
-      textAlign: 'center',
-      padding: '20px',
-      boxSizing: 'border-box'
-    }}>
-      <h1 style={{ fontSize: '2.5rem', marginBottom: '10px' }}>M LUDO</h1>
-      <p style={{ fontSize: '1.2rem', color: '#ffffff' }}>Pass N Play Classic Game</p>
-    </div>
-  );
-}
+// Initialize Debugger and render App
+initDebugDOM();
+console.log("app start");
 
 try {
   const container = document.getElementById('root');
@@ -83,9 +206,5 @@ try {
     );
   }
 } catch (e: any) {
-  const errDiv = document.getElementById('error-display');
-  if (errDiv) {
-    errDiv.style.display = 'block';
-    errDiv.innerText += '\n[MOUNT ERROR] ' + (e && e.stack ? e.stack : e);
-  }
+  addLog('FATAL_MOUNT', e && e.stack ? e.stack : String(e));
 }

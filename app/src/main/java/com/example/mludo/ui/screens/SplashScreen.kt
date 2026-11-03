@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.LinearProgressIndicator
@@ -35,18 +34,18 @@ import kotlinx.coroutines.delay
 fun SplashScreen(
     onSplashFinished: () -> Unit
 ) {
-    val scaleAnim = remember { Animatable(0.7f) }
+    val scaleAnim = remember { Animatable(0.8f) }
 
     LaunchedEffect(Unit) {
-        scaleAnim.animateTo(
-            targetValue = 1.05f,
-            animationSpec = tween(durationMillis = 800)
-        )
-        scaleAnim.animateTo(
-            targetValue = 1f,
-            animationSpec = tween(durationMillis = 400)
-        )
-        delay(300)
+        try {
+            scaleAnim.animateTo(
+                targetValue = 1.0f,
+                animationSpec = tween(durationMillis = 600)
+            )
+        } catch (_: Exception) {
+            // Ignore animation cancellation
+        }
+        delay(900)
         onSplashFinished()
     }
 
